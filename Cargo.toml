@@ -1,0 +1,16 @@
+[package]
+name = "chip-8_emu"
+version = "0.1.0"
+authors = ["Connor Belman <connorbelman@gmail.com>"]
+edition = "2018"
+
+[[bin]]
+name = "chip-8_emu"
+
+[dependencies]
+piston = "0.48.0"
+piston2d-graphics = "0.32.0"
+pistoncore-glutin_window = "0.61.0"
+piston2d-opengl_graphics = "0.65.0"
+rand = "0.6.5"
+ambisonic = "0.3.0"
