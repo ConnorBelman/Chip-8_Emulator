@@ -25,6 +25,11 @@ use std::num::Wrapping;
 
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
+const PINK: [f32; 4] = [0.94, 0.439, 0.63, 1.0];
+const BLUE: [f32; 4] = [0.0, 0.8, 1.0, 1.0];
+const BRIGHTGREEN: [f32; 4] = [0.086, 1.0, 0.74, 1.0];
+const MIDGREEN: [f32; 4] = [0.545, 0.675, 0.0588, 1.0];
+const DARKGREEN: [f32; 4] = [0.188, 0.384, 0.188, 1.0];
 
 const FONTSET: [u8; 80] =  [
     0xF0, 0x90, 0x90, 0x90, 0xF0,     // 0
@@ -131,6 +136,26 @@ impl Cpu {
                 Key::X  => self.key[0x0] = 1,
                 Key::C  => self.key[0xB] = 1,
                 Key::V  => self.key[0xF] = 1,
+                Key::D5 => {
+                    self.background = BLACK;
+                    self.foreground = WHITE;
+                }
+                Key::D6 => {
+                    self.background = PINK;
+                    self.foreground = BRIGHTGREEN;
+                }
+                Key::D7 => {
+                    self.background = WHITE;
+                    self.foreground = PINK;
+                }
+                Key::D8 => {
+                    self.background = WHITE;
+                    self.foreground = BLUE;
+                }
+                Key::D9 => {
+                    self.background = MIDGREEN;
+                    self.foreground = DARKGREEN;
+                }
                 _ => ()
             }
         }
