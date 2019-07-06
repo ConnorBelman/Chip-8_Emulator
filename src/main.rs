@@ -11,17 +11,17 @@ use glutin_window::GlutinWindow as Window;
 use opengl_graphics::{ GlGraphics, OpenGL };
 use rand::Rng;
 use graphics::*;
-use ambisonic::{rodio, AmbisonicBuilder};
-use std::{sync, thread, time};
-use std::sync::{Arc, Mutex};
-use std::sync::mpsc;
-use std::sync::mpsc::Sender;
+use std::thread;
 use std::time::Duration;
 use std::io;
 use std::io::prelude::*;
 use std::fs::File;
 use std::env;
 use std::num::Wrapping;
+
+const MASTER_CLOCK: u32 = 666_666;
+const CPU_CLOCK_RATIO: u32 = 3;
+const TIMER_CLOCK_RATIO: u32 = 25;
 
 const BLACK: [f32; 4] = [0.0, 0.0, 0.0, 1.0];
 const WHITE: [f32; 4] = [1.0, 1.0, 1.0, 1.0];
@@ -54,12 +54,14 @@ struct Cpu {
 	opcode: u16,            // Current Opcode
 	v: [u8; 16],            // General Purpose Registers
 	i: u16,                 // Index Register
-	st: Arc<Mutex<u8>>,     // Sound Timer
-	dt: Arc<Mutex<u8>>,     // Delay Timer
+	st: u8,                 // Sound Timer
+	dt: u8,                 // Delay Timer
 	pc: u16,                // Program Counter
 	sp: u8,                 // Stack Pointer
     stack: [u16; 16],       // Stack
 	memory: [u8; 4096],     // 4096 bytes of memory
+
+    clock: u32,             // Keeps track of clock ticks
 
     screen: [[u8; 64]; 32], // Screen Data
     foreground: [f32; 4],   // Foreground color
@@ -74,12 +76,13 @@ impl Cpu {
             opcode: 0,
             v: [0; 16],
             i: 0x200,
-            st: Arc::new(Mutex::new(0)),
-            dt: Arc::new(Mutex::new(0)),
+            st: 0,
+            dt: 0,
             pc: 0x200,
             sp: 0,
             stack: [0u16; 16],
             memory: [0; 4096],
+            clock: 0,
             screen: [[0u8; 64]; 32],
             foreground: WHITE,
             background: BLACK,
@@ -99,22 +102,13 @@ impl Cpu {
         }
     }
 
-    fn update_timers(&mut self, tx: Arc<Mutex<Sender<bool>>>) {
-        let st = Arc::clone(&self.st);
-        let dt = Arc::clone(&self.dt);
-        thread::spawn(move || {
-            let mut sound_timer = st.lock().unwrap();
-            let mut delay_timer = dt.lock().unwrap();
-            if *sound_timer > 0 {
-                *sound_timer -= 1;
-            }
-            if *delay_timer > 0 {
-                *delay_timer -= 1;
-            }
-            thread::sleep(Duration::from_millis(17));
-            let sender = tx.lock().unwrap();
-            sender.send(true);
-        });
+    fn update_timers(&mut self) {
+        if self.st > 0 {
+            self.st -= 1;
+        }
+        if self.dt > 0 {
+            self.dt -= 1;
+        }
     }
 
     fn key_press<E: GenericEvent>(&mut self, e: &E) {
@@ -155,6 +149,10 @@ impl Cpu {
                 Key::D9 => {
                     self.background = MIDGREEN;
                     self.foreground = DARKGREEN;
+                }
+                Key::D0 => {
+                    self.background = WHITE;
+                    self.foreground = BLACK;
                 }
                 _ => ()
             }
@@ -452,25 +450,19 @@ impl Cpu {
                 match self.opcode & 0x00FF {
                     // Fx07: Loads the value of dt into vx
                     0x07 => {
-                        let dt = self.dt.clone();
-                        let mut delay_timer = dt.lock().unwrap();
-                        self.v[x] = *delay_timer;
+                        self.v[x] = self.dt;
                         self.pc += 2;
                     },
                     // Fx0A: Wait for key press, stores value of key in vx
                     0x0A => self.wait_for_key_press(e, x),
                     // Fx15: Loads the value of vx into dt
                     0x15 => {
-                        let dt = self.dt.clone();
-                        let mut delay_timer = dt.lock().unwrap();
-                        *delay_timer = self.v[x];
+                        self.dt = self.v[x];
                         self.pc += 2;
                     },
                     // Fx18: Loads the value of vx into st
                     0x18 => {
-                        let st = self.st.clone();
-                        let mut sound_timer = st.lock().unwrap();
-                        *sound_timer = self.v[x];
+                        self.st = self.v[x];
                         self.pc += 2;
                     },
                     // Fx1E: Adds i and vx, stores the result in i
@@ -541,29 +533,28 @@ fn main() -> io::Result<()> {
 
     let mut events = Events::new(EventSettings::new());
     let mut gl = GlGraphics::new(opengl);
-    // Setup for data channel between
-    let (tx, rx) = mpsc::channel();
-    let sender = Arc::new(Mutex::new(tx));
-    cpu.update_timers(sender.clone(), );
+
     while let Some(e) = events.next(&mut window) {
-        cpu.fetch_opcode();
-        cpu.emulate_cycle(&e);
+        if cpu.clock % CPU_CLOCK_RATIO == 0 {
+            cpu.fetch_opcode();
+            cpu.emulate_cycle(&e);
+        }
+        if cpu.clock % TIMER_CLOCK_RATIO == 0 {
+            cpu.update_timers();
+        }
         if let Some(args) = e.render_args() {
             gl.draw(args.viewport(), |c, g| {
                 cpu.draw(&c, g);
             });
         }
-        if let Some(Button::Keyboard(key)) = e.press_args() {
+        if let Some(Button::Keyboard(_key)) = e.press_args() {
             cpu.key_press(&e);
         }
-        if let Some(Button::Keyboard(key)) = e.release_args() {
+        if let Some(Button::Keyboard(_key)) = e.release_args() {
             cpu.key_press(&e);
         }
-        match rx.try_recv() {
-            Ok(_) => cpu.update_timers(sender.clone()),
-            Err(_) => ()
-        };
-        thread::sleep(time::Duration::from_millis(2));
+        cpu.clock = (Wrapping(cpu.clock) + Wrapping(1)).0;
+        thread::sleep(Duration::new(0, MASTER_CLOCK));
     }
     Ok(())
 }
